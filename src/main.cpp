@@ -82,11 +82,18 @@ static const uint8_t CMD_REQ_MOBILE = 0x02;  // "Celular, me mande sua clipboard
 struct Rect { int16_t x, y, w, h; };
 static const Rect RECT_PC     = {  30,  70, 110, 90 };
 static const Rect RECT_MOBILE = { 180,  70, 110, 90 };
-static const Rect RECT_SEND   = {  90, 180, 140,  45 };
+// Botao ENVIAR aumentado (era 90,180,140,45) - dedo no painel resistivo
+// tende a cair em y=235+ quando o usuario mira no botao do fundo da tela.
+static const Rect RECT_SEND   = {  70, 175, 180,  60 };
 
 enum Source : uint8_t { SRC_NONE, SRC_PC, SRC_MOBILE };
 static Source g_selected = SRC_NONE;
 static String g_status = "Aguardando...";
+
+// Flag setado por callbacks BLE (task do host NimBLE) e consumido pelo
+// loop() na task do Arduino. NUNCA desenhe TFT dentro de callback BLE -
+// SPI compartilhado + stack apertado da task NimBLE 2.x causam crash.
+static volatile bool g_uiDirty = false;
 
 // =============================================================================
 // Globais de hardware
@@ -123,13 +130,13 @@ class ServerCb : public NimBLEServerCallbacks {
         Serial.printf("[BLE] Connected, total=%u\n", g_connCount);
         // Re-anuncia pra aceitar o outro cliente
         NimBLEDevice::startAdvertising();
-        drawUI();
+        g_uiDirty = true;
     }
     void onDisconnect(NimBLEServer* s, NimBLEConnInfo& /*connInfo*/, int reason) override {
         g_connCount = s->getConnectedCount();
         Serial.printf("[BLE] Disconnected (reason=%d), total=%u\n", reason, g_connCount);
         NimBLEDevice::startAdvertising();
-        drawUI();
+        g_uiDirty = true;
     }
 };
 
@@ -154,7 +161,7 @@ class WriteCb : public NimBLECharacteristicCallbacks {
             charToPc->notify();
             g_status = "Celular -> PC OK";
         }
-        drawUI();
+        g_uiDirty = true;
     }
 };
 
@@ -229,6 +236,10 @@ void setup() {
 // =============================================================================
 void loop() {
     handleTouch();
+    if (g_uiDirty) {
+        g_uiDirty = false;
+        drawUI();
+    }
     delay(15);
 }
 
