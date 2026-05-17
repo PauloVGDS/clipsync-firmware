@@ -127,11 +127,18 @@ O `delay(durationMs)` no meio do callback de touch trava o `loop()` por até
 mas o touch fica surdo. Solução: estado de "flash até `millis() > expiraEm`"
 desenhado no próximo frame.
 
-### 3. `drawUI()` chamado de dentro de `WriteCb::onWrite` (linhas 138, 108, 114)
-`onWrite` executa na task do host NimBLE. Desenhar TFT lá envolve SPI, e o
-touch compartilha o mesmo barramento - há risco de contenção/corrupção de
-pixels quando um toque coincide com um WRITE BLE. Solução: enfileirar um
-flag (`g_uiDirty = true`) e deixar o `loop()` redesenhar.
+### 3. `drawUI()` em callback BLE [OK - 2026-05-17]
+**Resolvido.** Padrao `g_uiDirty` (volatile bool) implementado: callbacks
+`ServerCb::onConnect/onDisconnect` e `WriteCb::onWrite` apenas setam a
+flag, e o `loop()` consome ela chamando `drawUI()` na task do Arduino.
+
+Foi mais critico do que parecia: NimBLE 2.x tem stack apertado na task
+do host, e desenhar TFT (SPI heavy) lah dentro causava **crash com
+backtrace** sempre que um WRITE de from_pc/from_mobile chegava. So
+parou de crashar com a flag em uso.
+
+Lesson: NUNCA fazer SPI/I2C/IO pesado dentro de callbacks NimBLE - so
+mexer em estado (atomico ou volatile) e drenar no loop principal.
 
 ### 4. Sem chunking de payload BLE
 MTU 517 → ~500 bytes úteis. macOS negocia ~185. Clipboards maiores são
